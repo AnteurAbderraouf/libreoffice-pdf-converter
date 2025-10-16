@@ -13,7 +13,7 @@ def convert_any_to_pdf():
 
     # Detect the correct LibreOffice executable
     if platform.system() == "Windows":
-        office_cmd = r"Full path to libre soffice.exe" # Put your full path to libre soffice.exe
+        office_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe" # Put your full path to libre soffice.exe
     else:
         office_cmd = "libreoffice"
 
