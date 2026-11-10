@@ -15,9 +15,9 @@ SUPPORTED_EXTS = (
 )
 
 
-def find_soffice():
+def locate_soffice():
     """
-    Locate the LibreOffice executable.
+    Return the path of the LibreOffice executable, or None if it isn't installed.
     Order: SOFFICE_PATH env var -> PATH -> default install locations.
     """
     env_path = os.environ.get("SOFFICE_PATH")
@@ -46,19 +46,27 @@ def find_soffice():
     for path in candidates:
         if os.path.isfile(path):
             return path
+    return None
 
+
+def find_soffice():
+    """Like locate_soffice(), but exit with a helpful message if it's missing."""
+    path = locate_soffice()
+    if path:
+        return path
     sys.exit(
-        "LibreOffice not found. Install it from https://www.libreoffice.org/download/ "
+        "LibreOffice not found. Run `python install_and_convert.py` to install it, "
+        "install it from https://www.libreoffice.org/download/, "
         "or set SOFFICE_PATH to the full path of soffice."
     )
 
 
-def convert_any_to_pdf():
+def convert_any_to_pdf(office_cmd=None):
     """Convert every supported file in INPUT_FOLDER to PDF in OUTPUT_FOLDER."""
     if not os.path.isdir(INPUT_FOLDER):
         sys.exit(f"Input folder not found: {INPUT_FOLDER}")
 
-    office_cmd = find_soffice()
+    office_cmd = office_cmd or find_soffice()
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     files = sorted(f for f in os.listdir(INPUT_FOLDER) if f.lower().endswith(SUPPORTED_EXTS))

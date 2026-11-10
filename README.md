@@ -26,6 +26,24 @@ Bulk-convert Word, Excel, PowerPoint, OpenDocument and other office files to PDF
 
 3. Your PDFs appear in `output_pdf/`.
 
+### Don't have LibreOffice yet?
+
+Run `install_and_convert.py` instead. If LibreOffice isn't found, it installs it with your system's package manager, waits for the install to finish, then converts your files:
+
+```bash
+python install_and_convert.py            # asks before installing
+python install_and_convert.py --yes      # installs without asking
+python install_and_convert.py --dry-run  # only shows the install command
+```
+
+| OS | Installs with |
+| --- | --- |
+| Windows | `winget` (falls back to `choco`) |
+| macOS | Homebrew (`brew install --cask libreoffice`) |
+| Linux | `apt-get`, `dnf`, `pacman` or `zypper` (uses `sudo`, so it may ask for your password) |
+
+If LibreOffice is already installed, it skips straight to converting.
+
 ### LibreOffice in a custom location
 
 If LibreOffice is installed somewhere the script doesn't check, point to it with `SOFFICE_PATH`:
