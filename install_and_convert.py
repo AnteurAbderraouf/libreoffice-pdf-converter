@@ -8,13 +8,77 @@ Install LibreOffice if it isn't found, then convert everything in input_files/ t
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 
 from convert_to_pdf import convert_any_to_pdf, locate_soffice
 
 DOWNLOAD_URL = "https://www.libreoffice.org/download/"
+
+
+def _can_print(chars):
+    try:
+        chars.encode(sys.stdout.encoding or "ascii")
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def run_with_spinner(cmd, label="Installing LibreOffice"):
+    """
+    Run cmd while showing a live status line: spinner, bouncing bar, elapsed time
+    and the installer's latest message. Returns (exit_code, output_lines).
+    """
+    frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" if _can_print("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏") else "|/-\\"
+    lines, last = [], [""]
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+
+    def reader():
+        for raw in proc.stdout:
+            # installers redraw progress with \r; keep the newest readable piece
+            for part in raw.split("\r"):
+                text = re.sub(r"[^\x20-\x7e]+", " ", part).strip()
+                if len(text) > 2 and text.strip("-\\|/ ") != "":
+                    lines.append(text)
+                    last[0] = text
+
+    threading.Thread(target=reader, daemon=True).start()
+
+    animate = sys.stdout.isatty()
+    start, i, width, prev_minute = time.time(), 0, 10, -1
+    while proc.poll() is None:
+        elapsed = int(time.time() - start)
+        if animate:
+            pos = i % (2 * (width - 4))
+            pos = pos if pos <= width - 4 else 2 * (width - 4) - pos
+            bar = " " * pos + "====" + " " * (width - 4 - pos)
+            cols = shutil.get_terminal_size((80, 20)).columns
+            line = f"{frames[i % len(frames)]} {label} [{bar}] {elapsed // 60}:{elapsed % 60:02d}  {last[0]}"
+            sys.stdout.write("\r" + line[: cols - 1].ljust(cols - 1))
+            sys.stdout.flush()
+        elif elapsed // 60 != prev_minute:  # not a terminal: one line per minute
+            prev_minute = elapsed // 60
+            print(f"{label}... {elapsed // 60} min elapsed", flush=True)
+        i += 1
+        time.sleep(0.1)
+
+    proc.wait()
+    elapsed = int(time.time() - start)
+    if animate:
+        cols = shutil.get_terminal_size((80, 20)).columns
+        sys.stdout.write("\r" + " " * (cols - 1) + "\r")
+    took = f"{elapsed // 60}:{elapsed % 60:02d}"
+    if proc.returncode == 0:
+        print(f"{'✔' if _can_print('✔') else 'OK'} Install finished in {took}")
+    else:
+        print(f"{'✘' if _can_print('✘') else 'X'} Install failed after {took}")
+    return proc.returncode, lines
 
 
 def install_command():
@@ -79,10 +143,19 @@ def main():
         if answer.strip().lower() not in ("y", "yes"):
             sys.exit("Cancelled. Nothing was installed.")
 
-    print("\nInstalling LibreOffice, please wait...\n")
-    result = subprocess.run(cmd)  # blocks until the installer finishes
-    if result.returncode != 0:
-        sys.exit(f"\nInstallation failed (exit code {result.returncode}). "
+    # ask for the sudo password now, before the spinner hides the prompt
+    if "sudo" in cmd or (cmd[0] == "sh" and "sudo" in cmd[-1]):
+        if subprocess.run(["sudo", "-v"]).returncode != 0:
+            sys.exit("Could not get sudo permission. Nothing was installed.")
+
+    print("This can take several minutes (LibreOffice is about 350 MB).\n")
+    code, output = run_with_spinner(cmd)  # blocks until the installer finishes
+    if code != 0:
+        if output:
+            print("\nLast installer output:")
+            for line in output[-15:]:
+                print("  " + line)
+        sys.exit(f"\nInstallation failed (exit code {code}). "
                  f"Install it manually from {DOWNLOAD_URL} and run again.")
 
     soffice = locate_soffice()
@@ -91,7 +164,7 @@ def main():
                  "Open a new terminal and run `python convert_to_pdf.py`, "
                  "or set SOFFICE_PATH to the full path of soffice.")
 
-    print(f"\nLibreOffice installed: {soffice}\n")
+    print(f"LibreOffice installed: {soffice}\n")
     convert_any_to_pdf(soffice)
 
 
