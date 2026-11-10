@@ -1,48 +1,89 @@
 import os
-import subprocess
 import platform
+import shutil
+import subprocess
+import sys
 
-INPUT_FOLDER = "input_files" 
+INPUT_FOLDER = "input_files"
 OUTPUT_FOLDER = "output_pdf"
 
-def convert_any_to_pdf():
-    """
-    Convert all LibreOffice-supported files in INPUT_FOLDER to PDF in OUTPUT_FOLDER.
-    Includes: .doc, .docx, .odt, .ppt, .pptx, .xls, .xlsx, .odp, .ods, etc.
-    """
+SUPPORTED_EXTS = (
+    ".doc", ".docx", ".odt", ".rtf", ".txt", ".html", ".xml",
+    ".xls", ".xlsx", ".ods", ".csv",
+    ".ppt", ".pptx", ".odp",
+    ".odg", ".svg",
+)
 
-    # Detect the correct LibreOffice executable
-    if platform.system() == "Windows":
-        office_cmd = r"Full soffice.exe path" # Put your full path to libre soffice.exe
+
+def find_soffice():
+    """
+    Locate the LibreOffice executable.
+    Order: SOFFICE_PATH env var -> PATH -> default install locations.
+    """
+    env_path = os.environ.get("SOFFICE_PATH")
+    if env_path:
+        if os.path.isfile(env_path):
+            return env_path
+        sys.exit(f"SOFFICE_PATH is set but not found: {env_path}")
+
+    for name in ("soffice", "libreoffice"):
+        found = shutil.which(name)
+        if found:
+            return found
+
+    system = platform.system()
+    if system == "Windows":
+        candidates = [
+            os.path.join(os.environ.get(var, ""), "LibreOffice", "program", "soffice.exe")
+            for var in ("ProgramFiles", "ProgramFiles(x86)")
+            if os.environ.get(var)
+        ]
+    elif system == "Darwin":
+        candidates = ["/Applications/LibreOffice.app/Contents/MacOS/soffice"]
     else:
-        office_cmd = "libreoffice"
+        candidates = ["/usr/bin/soffice", "/usr/lib/libreoffice/program/soffice", "/snap/bin/libreoffice"]
 
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
 
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
-
-    supported_exts = (
-        ".doc", ".docx", ".odt",
-        ".ppt", ".pptx", ".odp",
-        ".xls", ".xlsx", ".ods",
-        ".rtf", ".txt", ".csv", ".html", ".xml" 
+    sys.exit(
+        "LibreOffice not found. Install it from https://www.libreoffice.org/download/ "
+        "or set SOFFICE_PATH to the full path of soffice."
     )
 
 
-    for file in os.listdir(INPUT_FOLDER):
-        if file.lower().endswith(supported_exts):
-            input_path = os.path.join(INPUT_FOLDER, file)
-            print(f"Converting: {input_path}")
+def convert_any_to_pdf():
+    """Convert every supported file in INPUT_FOLDER to PDF in OUTPUT_FOLDER."""
+    if not os.path.isdir(INPUT_FOLDER):
+        sys.exit(f"Input folder not found: {INPUT_FOLDER}")
 
-            subprocess.run([
-                office_cmd,
-                "--headless",
-                "--convert-to", "pdf",
-                "--outdir", OUTPUT_FOLDER,
-                input_path
-            ], check=True)
+    office_cmd = find_soffice()
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    print("\n✅ All supported files converted. PDFs saved in:", OUTPUT_FOLDER)
+    files = sorted(f for f in os.listdir(INPUT_FOLDER) if f.lower().endswith(SUPPORTED_EXTS))
+    if not files:
+        print(f"No supported files in {INPUT_FOLDER}/")
+        return
+
+    failed = []
+    for file in files:
+        input_path = os.path.join(INPUT_FOLDER, file)
+        print(f"Converting: {input_path}")
+        result = subprocess.run(
+            [office_cmd, "--headless", "--convert-to", "pdf", "--outdir", OUTPUT_FOLDER, input_path],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            failed.append(file)
+            print(f"  failed: {result.stderr.strip() or result.stdout.strip()}")
+
+    done = len(files) - len(failed)
+    print(f"\nConverted {done}/{len(files)} files. PDFs saved in: {OUTPUT_FOLDER}")
+    if failed:
+        print("Failed:", ", ".join(failed))
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     convert_any_to_pdf()
